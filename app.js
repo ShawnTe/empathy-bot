@@ -41,21 +41,56 @@ if (!(APP_SECRET && VALIDATION_TOKEN && PAGE_ACCESS_TOKEN && SERVER_URL)) {
 }
 
 
+/* Use our own validation token. Check that the token used in the Webhook setup is the same token used here. */
 
-/*
- * Verify that the callback came from Facebook. Using the App Secret from
- * the App Dashboard, we can verify the signature that is sent with each
- * callback in the x-hub-signature field, located in the header.
- *
- * https://developers.facebook.com/docs/graph-api/webhooks#setup
- *
- */
+app.get('/webhook', function(req, res) {
+  if (req.query['hub.mode'] === 'subscribe' &&
+      req.query['hub.verify_token'] === VALIDATION_TOKEN) {
+    console.log("Validating webhook");
+    res.status(200).send(req.query['hub.challenge']);
+  } else {
+    console.error("Failed validation. Make sure the validation tokens match.");
+    res.sendStatus(403);
+  }
+});
+
+
+/* All callbacks for Messenger are POST-ed. They will be sent to the same webhook. Be sure we subscribe our app to our page to receive callbacks for the page. https://developers.facebook.com/docs/messenger-platform/product-overview/setup#subscribe_app */
+
+app.post('/webhook', function (req, res) {
+  var data = req.body;
+
+  // Make sure this is a page subscription
+  if (data.object == 'page') {
+    // Iterate over each entry; there may be multiple if batched
+    data.entry.forEach(function(pageEntry) {
+      var pageID = pageEntry.id;
+      var timeOfEvent = pageEntry.time;
+
+      // Iterate over each messaging event
+      pageEntry.messaging.forEach(function(messagingEvent) {
+        if (messagingEvent.message) {
+          receivedMessage(messagingEvent);
+        } else {
+          // If this happens, check sample code to see if we need to put back in other types
+          console.log("Webhook received unknown messagingEvent: ", messagingEvent);
+        }
+      });
+    });
+
+    /* Assume all went well. We must send back a 200, within 20 seconds, to let FB know we've successfully received the callback. Otherwise, the request will time out. */
+    res.sendStatus(200);
+  }
+});
+
+
+/* Verify that the callback came from Facebook. Using the App Secret from the App Dashboard, we can verify the signature that is sent with each callback in the x-hub-signature field, located in the header. https://developers.facebook.com/docs/graph-api/webhooks#setup */
+
 function verifyRequestSignature(req, res, buf) {
   var signature = req.headers["x-hub-signature"];
 
   if (!signature) {
-    // For testing, let's log an error. In production, you should throw an
-    // error.
+    /* For testing, let's log an error. In production, we should throw an error. */
     console.error("Couldn't validate the signature.");
   } else {
     var elements = signature.split('=');
@@ -71,9 +106,6 @@ function verifyRequestSignature(req, res, buf) {
     }
   }
 }
-
-
-
 
 
 
